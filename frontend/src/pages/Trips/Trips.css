@@ -1,0 +1,130 @@
+.trips-page { display: flex; flex-direction: column; gap: 16px; height: calc(100vh - 64px - 48px - 32px); }
+
+.trips-toolbar {
+  display: flex;
+  gap: 12px;
+}
+
+.trips-toolbar select {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  background: white;
+  outline: none;
+}
+
+.trips-layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 16px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.trips-list-panel {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trip-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.trip-card:hover { background: #f8fafc; border-color: #bfdbfe; }
+.trip-card.selected { background: #eff6ff; border-color: #0ea5e9; }
+
+.trip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.trip-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.trip-status.active { background: #dcfce7; color: #16a34a; }
+.trip-status.completed { background: #eff6ff; color: #0284c7; }
+
+.trip-id { font-size: 11px; color: #94a3b8; }
+
+.trip-device {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 6px;
+}
+
+.trip-times {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.trip-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.trip-map-panel {
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+  min-height: 400px;
+}
+
+.map-placeholder {
+  height: 100%;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 14px;
+  border-radius: 16px;
+}
+
+.empty-state { text-align: center; padding: 32px; color: #94a3b8; font-size: 13px; }
+.loading { display: flex; align-items: center; justify-content: center; padding: 32px; color: #64748b; }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px;
+  font-size: 13px;
+}
+
+.pagination button {
+  padding: 4px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
