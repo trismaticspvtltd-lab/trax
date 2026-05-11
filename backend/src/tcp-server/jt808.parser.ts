@@ -557,14 +557,15 @@ export class JT808Parser {
     serverIp: string, serverTcpPort: number, serverUdpPort: number,
     channel: number, dataType: number, streamType: number,
   ): Buffer {
-    const ipBuf = Buffer.alloc(41);
-    Buffer.from(serverIp).copy(ipBuf);
-    const body = Buffer.alloc(47);
-    ipBuf.copy(body, 0);
-    body.writeUInt16BE(serverTcpPort, 41);
-    body.writeUInt16BE(serverUdpPort, 43);
-    body[45] = channel;
-    body[46] = (dataType << 4) | (streamType & 0x0f);
+    // JT1078 spec: channel(1) + dataType(1) + streamType(1) + serverIP(41) + tcpPort(2) + udpPort(2) = 48 bytes
+    const body = Buffer.alloc(48);
+    body[0] = channel;
+    body[1] = dataType;
+    body[2] = streamType;
+    const ipBytes = Buffer.from(serverIp);
+    ipBytes.copy(body, 3, 0, Math.min(ipBytes.length, 41));
+    body.writeUInt16BE(serverTcpPort, 44);
+    body.writeUInt16BE(serverUdpPort, 46);
     return this.buildFrame(MsgId.REALTIME_VIDEO_REQUEST, phone, serialNo, body);
   }
 
@@ -699,8 +700,9 @@ export class JT808Parser {
     const speed      = body.readUInt16BE(18) / 10;
     const heading    = body.readUInt16BE(20);
 
-    const yr = body[22], mo = body[23], dy = body[24];
-    const hh = body[25], mm = body[26], ss = body[27];
+    const bcd = (b: number) => Math.floor(b / 16) * 10 + (b & 0x0f);
+    const yr = bcd(body[22]), mo = bcd(body[23]), dy = bcd(body[24]);
+    const hh = bcd(body[25]), mm = bcd(body[26]), ss = bcd(body[27]);
     const timestamp = new Date(2000 + yr, mo - 1, dy, hh, mm, ss);
 
     // ── Status flags (all 32 bits) ───────────────────────────────────────────

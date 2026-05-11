@@ -328,7 +328,7 @@ export class TcpServerService implements OnModuleInit, OnModuleDestroy {
         const itemData = messageBody.slice(offset, offset + itemLen);
         offset += itemLen;
 
-        const locationData = JT808Parser.parseLocation(itemData.slice(1));
+        const locationData = JT808Parser.parseLocation(itemData);
         if (locationData.gpsValid) {
           await this.trackingService.processLocationUpdate(phoneNumber, locationData);
         }

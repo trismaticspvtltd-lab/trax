@@ -35,6 +35,8 @@ export class MediaServerGateway implements OnGatewayInit {
   emitFrame(imei: string, channel: number, frameData: Buffer, isKeyFrame: boolean) {
     const room = `stream_${imei}_${channel}`;
     this.server.to(room).emit('frame', {
+      imei,
+      channel,
       video: frameData,
       keyFrame: isKeyFrame,
       ts: Date.now(),
@@ -46,6 +48,6 @@ export class MediaServerGateway implements OnGatewayInit {
     const room = `stream_${imei}_${channel}`;
     this.server.to(room).emit('stream_event', { imei, channel, event, data, ts: Date.now() });
     // Also broadcast to anyone monitoring all streams
-    this.server.emit('stream_status', { imei, channel, event, ts: Date.now() });
+    this.server.emit('stream_status', { imei, channel, status: event, ts: Date.now() });
   }
 }

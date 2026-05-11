@@ -1,4 +1,4 @@
-/* ─── Root layout ─────────────────────────────────────────────────────────── */
+/* ─── Root ───────────────────────────────────────────────────────────────── */
 
 .ls-root {
   display: flex;
@@ -10,26 +10,25 @@
   overflow: hidden;
 }
 
-/* ─── Top bar ─────────────────────────────────────────────────────────────── */
+/* ─── Top bar ───────────────────────────────────────────────────────────── */
 
 .ls-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  padding: 8px 16px;
   border-bottom: 1px solid #21262d;
   flex-shrink: 0;
+  background: #161b22;
+  gap: 12px;
 }
 
-.ls-topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
+.ls-topbar-left { display: flex; align-items: center; gap: 14px; }
+.ls-topbar-right { display: flex; align-items: center; gap: 10px; }
 
 .ls-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: #e6edf3;
   letter-spacing: -0.3px;
@@ -38,44 +37,62 @@
 .ls-status-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
   color: #8b949e;
 }
 
-.ls-conn-dot {
-  width: 8px;
-  height: 8px;
+.ls-dot {
+  width: 7px; height: 7px;
   border-radius: 50%;
-  display: inline-block;
   flex-shrink: 0;
 }
 
-.ls-conn-label {
-  font-size: 12px;
-  color: #8b949e;
-}
-
-.ls-stream-count {
-  font-size: 12px;
-  color: #58a6ff;
-  background: rgba(88, 166, 255, 0.1);
-  padding: 2px 8px;
+.ls-live-chip {
+  background: rgba(34,197,94,.15);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,.3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: 1px 7px;
   border-radius: 10px;
+  animation: ls-pulse-bg 2s ease-in-out infinite;
 }
 
-/* ─── Body ────────────────────────────────────────────────────────────────── */
-
-.ls-body {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
+@keyframes ls-pulse-bg {
+  0%,100% { opacity:1; }
+  50%      { opacity:.6; }
 }
 
-/* ─── Left panel ──────────────────────────────────────────────────────────── */
+.ls-idle-warn {
+  font-size: 11px;
+  color: #f59e0b;
+  font-weight: 600;
+  animation: ls-pulse-bg 1s ease-in-out infinite;
+}
+
+.ls-stop-all {
+  padding: 5px 14px;
+  background: rgba(239,68,68,.15);
+  border: 1px solid rgba(239,68,68,.35);
+  border-radius: 6px;
+  color: #ef4444;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.ls-stop-all:hover { background: rgba(239,68,68,.28); }
+
+/* ─── Body ──────────────────────────────────────────────────────────────── */
+
+.ls-body { display: flex; flex: 1; overflow: hidden; }
+
+/* ─── Left panel ────────────────────────────────────────────────────────── */
 
 .ls-panel {
-  width: 260px;
+  width: 220px;
   flex-shrink: 0;
   background: #161b22;
   border-right: 1px solid #21262d;
@@ -85,205 +102,168 @@
 }
 
 .ls-panel-header {
-  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: .08em;
   text-transform: uppercase;
+  color: #6e7681;
+  flex-shrink: 0;
+  border-bottom: 1px solid #21262d;
+}
+
+.ls-panel-count {
+  background: #21262d;
   color: #8b949e;
-  border-bottom: 1px solid #21262d;
-  flex-shrink: 0;
-}
-
-/* ─── Request Stream form ─────────────────────────────────────────────────── */
-
-.ls-request-form {
-  padding: 12px 16px;
-  border-bottom: 1px solid #21262d;
-  flex-shrink: 0;
-}
-
-.ls-req-label {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #8b949e;
-  margin-bottom: 8px;
+  padding: 1px 6px;
+  border-radius: 8px;
 }
 
-.ls-req-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  color: #e6edf3;
-  font-size: 12px;
-  margin-bottom: 6px;
-  outline: none;
-}
+/* ─── Channel selector ──────────────────────────────────────────────────── */
 
-.ls-req-input:focus { border-color: #388bfd; }
-.ls-req-input::placeholder { color: #484f58; }
-
-.ls-req-row {
+.ls-ch-selector {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
 }
 
-.ls-req-select {
-  flex: 1;
-  padding: 7px 8px;
-  background: #161b22;
+.ls-ch-label {
+  font-size: 10px;
+  color: #6e7681;
+  font-weight: 600;
+  letter-spacing: .04em;
+  margin-right: 2px;
+}
+
+.ls-ch-btn {
+  padding: 3px 8px;
+  background: #0d1117;
   border: 1px solid #30363d;
-  border-radius: 6px;
-  color: #e6edf3;
-  font-size: 12px;
-  outline: none;
-  cursor: pointer;
-}
-
-.ls-req-btn {
-  padding: 7px 16px;
-  background: #238636;
-  border: none;
-  border-radius: 6px;
-  color: white;
-  font-size: 12px;
+  border-radius: 4px;
+  color: #8b949e;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.ls-ch-btn:hover { border-color: #484f58; color: #c9d1d9; }
+.ls-ch-btn-active {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
 }
 
-.ls-req-btn:hover:not(:disabled) { background: #2ea043; }
-.ls-req-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* ─── Device list ─────────────────────────────────────────────────────────── */
+/* ─── Device list ───────────────────────────────────────────────────────── */
 
 .ls-panel-empty {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
   font-size: 12px;
   color: #484f58;
-  padding: 24px;
+  text-align: center;
+  padding: 20px;
   line-height: 1.6;
 }
 
 .ls-device-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 6px;
   scrollbar-width: thin;
   scrollbar-color: #30363d transparent;
 }
-
 .ls-device-list::-webkit-scrollbar { width: 4px; }
-.ls-device-list::-webkit-scrollbar-track { background: transparent; }
 .ls-device-list::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 
-.ls-device-item {
-  padding: 10px 12px;
-  border-radius: 8px;
+.ls-device-card {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 7px;
+  padding: 9px 11px;
+  margin-bottom: 5px;
   cursor: pointer;
-  border: 1px solid transparent;
-  margin-bottom: 4px;
-  transition: background 0.15s, border-color 0.15s;
+  transition: border-color .15s, background .15s;
+  user-select: none;
 }
-
-.ls-device-item:hover {
-  background: #1f2937;
-  border-color: #30363d;
-}
-
-.ls-device-selected {
-  background: #0f2942 !important;
+.ls-device-card:hover { border-color: #388bfd; }
+.ls-device-card-active {
   border-color: #1d4ed8 !important;
+  background: #0c1a2e !important;
 }
 
-.ls-device-top {
+.ls-device-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
   margin-bottom: 3px;
 }
 
-.ls-device-imei {
+.ls-device-name {
   font-size: 12px;
   font-weight: 600;
   color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 130px;
+}
+
+.ls-watching-badge {
+  background: rgba(34,197,94,.15);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,.3);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  animation: ls-pulse-bg 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.ls-device-imei {
+  font-size: 10px;
+  color: #6e7681;
   font-family: 'SFMono-Regular', Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-bottom: 5px;
 }
 
-.ls-device-phone {
-  display: block;
-  font-size: 11px;
-  color: #8b949e;
-  margin-bottom: 4px;
+.ls-device-action { font-size: 10px; }
+
+.ls-action-watch {
+  color: #58a6ff;
+  font-weight: 600;
 }
 
-.ls-device-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: #484f58;
-}
-
-/* ─── Status badges ───────────────────────────────────────────────────────── */
-
-.stream-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.badge-live {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
-}
-
-.badge-connecting {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-
-.badge-stopped {
-  background: rgba(148, 163, 184, 0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.badge-recording {
-  background: rgba(239, 68, 68, 0.15);
+.ls-action-stop {
   color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-weight: 600;
 }
 
-/* ─── Main video area ─────────────────────────────────────────────────────── */
+/* ─── Main area ─────────────────────────────────────────────────────────── */
 
 .ls-main {
   flex: 1;
   overflow: hidden;
   display: flex;
+  flex-direction: column;
   background: #0d1117;
 }
+
+/* ─── Placeholder ───────────────────────────────────────────────────────── */
 
 .ls-placeholder {
   flex: 1;
@@ -291,183 +271,212 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
   color: #484f58;
+}
+.ls-placeholder p { margin: 0; font-size: 13px; text-align: center; }
+.ls-placeholder-sub { font-size: 11px !important; color: #30363d !important; }
+
+/* ─── Watch container ───────────────────────────────────────────────────── */
+
+.ls-watch-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ls-watch-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
   gap: 12px;
 }
 
-.ls-placeholder-icon {
-  font-size: 48px;
-  opacity: 0.4;
+.ls-watch-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
 }
 
-.ls-placeholder p {
+.ls-watch-name {
   font-size: 13px;
-  margin: 0;
+  font-weight: 700;
+  color: #e6edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
-/* ─── Video grid ──────────────────────────────────────────────────────────── */
+.ls-watch-imei {
+  font-size: 10px;
+  color: #6e7681;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  white-space: nowrap;
+}
 
-.ls-grid {
+.ls-watch-channels {
+  font-size: 10px;
+  color: #484f58;
+  white-space: nowrap;
+}
+
+/* ─── Idle progress bar ─────────────────────────────────────────────────── */
+
+.ls-idle-bar {
+  position: relative;
+  height: 20px;
+  min-width: 180px;
+  max-width: 260px;
+  background: rgba(245,158,11,.08);
+  border: 1px solid rgba(245,158,11,.25);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ls-idle-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: rgba(245,158,11,.35);
+  transition: width .9s linear;
+}
+
+.ls-idle-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #f59e0b;
+  white-space: nowrap;
+  padding: 0 8px;
+  letter-spacing: .02em;
+}
+
+/* ─── Channel grid ──────────────────────────────────────────────────────── */
+
+.ls-ch-grid {
   flex: 1;
   display: grid;
   gap: 2px;
   padding: 2px;
-  overflow: hidden;
-}
-
-/* 1 stream — full width */
-.ls-grid[data-count="1"] {
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
-}
-
-/* 2 streams — side by side */
-.ls-grid[data-count="2"] {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr;
-}
-
-/* 3 streams — 2 top, 1 bottom-left */
-.ls-grid[data-count="3"] {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-}
-
-.ls-grid[data-count="3"] .ls-grid-cell:nth-child(3) {
-  grid-column: 1 / 2;
-}
-
-/* 4 streams — 2x2 */
-.ls-grid[data-count="4"] {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-}
-
-.ls-grid-cell {
-  position: relative;
-  background: #000;
-  border-radius: 6px;
+  background: #060a0f;
   overflow: hidden;
   min-height: 0;
 }
 
-.ls-close-stream {
-  position: absolute;
-  top: 36px;
-  right: 6px;
-  z-index: 20;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  font-size: 14px;
-  color: #e6edf3;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  padding: 0;
-  transition: background 0.15s;
+/* 1 channel: single full view */
+.ls-ch-grid-1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
 }
 
-.ls-close-stream:hover {
-  background: rgba(239, 68, 68, 0.7);
+/* 2 channels: side by side */
+.ls-ch-grid-2 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
 }
 
-/* ─── Video wrapper ───────────────────────────────────────────────────────── */
+/* 4 channels: 2×2 */
+.ls-ch-grid-4 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
 
-.video-wrapper {
+/* 6 channels: 3×2 */
+.ls-ch-grid-6 {
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+/* 8 channels: 4×2 */
+.ls-ch-grid-8 {
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.ls-ch-cell {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ─── Channel Player (cp-*) ─────────────────────────────────────────────── */
+
+.cp-root {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
-}
-
-.video-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 10px;
-  background: rgba(13, 17, 23, 0.85);
-  border-bottom: 1px solid #21262d;
-  flex-shrink: 0;
-  gap: 8px;
-  z-index: 10;
-}
-
-.video-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #8b949e;
-  font-family: 'SFMono-Regular', Consolas, monospace;
+  background: #000;
+  border-radius: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.video-header-actions {
+/* Header strip */
+.cp-header {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 3px 8px;
+  background: rgba(13,17,23,.92);
+  border-bottom: 1px solid #1c2128;
+  flex-shrink: 0;
+  min-height: 22px;
+}
+
+.cp-ch-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #c9d1d9;
+  letter-spacing: .04em;
   flex-shrink: 0;
 }
 
-/* Recording indicator */
-.rec-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.cp-stat {
   font-size: 9px;
-  font-weight: 700;
-  color: #ef4444;
-  letter-spacing: 0.06em;
+  color: #58a6ff;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  flex-shrink: 0;
 }
 
-.rec-dot {
-  width: 7px;
-  height: 7px;
+/* State dot */
+.cp-dot {
+  width: 6px; height: 6px;
   border-radius: 50%;
-  background: #ef4444;
-  animation: ls-pulse 1s ease-in-out infinite;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.cp-dot.connecting { background: #f59e0b; animation: pulse-dot 1.2s ease-in-out infinite; }
+.cp-dot.live       { background: #22c55e; animation: pulse-dot 2s ease-in-out infinite; }
+.cp-dot.no-signal  { background: #6e7681; }
+.cp-dot.stopped    { background: #30363d; }
+
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; }
+  50%      { opacity: .4; }
 }
 
-@keyframes ls-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.4; transform: scale(0.75); }
-}
-
-/* Snapshot button */
-.snapshot-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  color: #e6edf3;
-  font-size: 13px;
-  width: 24px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  transition: background 0.15s;
-}
-
-.snapshot-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-/* ─── 16:9 ratio box ──────────────────────────────────────────────────────── */
-
-.video-ratio-box {
+/* Video area */
+.cp-video-area {
   flex: 1;
   position: relative;
   background: #000;
   overflow: hidden;
+  min-height: 0;
 }
 
-.video-el {
+.cp-video {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -477,42 +486,93 @@
   display: block;
 }
 
-/* ─── Video overlays ──────────────────────────────────────────────────────── */
-
-.video-overlay {
+/* Overlays */
+.cp-overlay {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.65);
-  color: #8b949e;
-  font-size: 13px;
+  gap: 10px;
+  background: rgba(0,0,0,.82);
   z-index: 5;
 }
 
-.video-overlay-ended {
-  background: rgba(0, 0, 0, 0.78);
-  color: #484f58;
+.cp-overlay-nosig  {
+  color: #6e7681;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  gap: 8px;
 }
 
-.overlay-icon {
-  font-size: 28px;
-  opacity: 0.5;
+.cp-overlay-stopped {
+  background: rgba(0,0,0,.88);
+  color: #30363d;
+  font-size: 22px;
 }
 
-/* Spinner */
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #30363d;
+/* Connecting spinner */
+.cp-spinner {
+  width: 26px; height: 26px;
+  border: 2px solid #21262d;
   border-top-color: #58a6ff;
   border-radius: 50%;
-  animation: ls-spin 0.8s linear infinite;
+  animation: spin .7s linear infinite;
 }
 
-@keyframes ls-spin {
-  to { transform: rotate(360deg); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Controls bar */
+.cp-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: rgba(13,17,23,.92);
+  border-top: 1px solid #1c2128;
+  flex-shrink: 0;
+  min-height: 24px;
+}
+
+.cp-btn {
+  width: 22px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 4px;
+  color: #8b949e;
+  cursor: pointer;
+  padding: 0;
+  transition: background .12s, color .12s;
+  flex-shrink: 0;
+}
+.cp-btn:hover { background: rgba(255,255,255,.14); color: #e6edf3; }
+
+/* Fullscreen overrides */
+.cp-root:fullscreen,
+.cp-root:-webkit-full-screen {
+  border-radius: 0;
+}
+.cp-root:fullscreen .cp-controls,
+.cp-root:-webkit-full-screen .cp-controls {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(0deg, rgba(0,0,0,.85) 0%, transparent 100%);
+  border-top: none;
+  padding: 16px 10px 8px;
+  min-height: unset;
+}
+.cp-root:fullscreen .cp-header,
+.cp-root:-webkit-full-screen .cp-header {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.8) 0%, transparent 100%);
+  border-bottom: none;
+}
+.cp-root:fullscreen .cp-video-area,
+.cp-root:-webkit-full-screen .cp-video-area {
+  flex: 1;
+  height: 100%;
 }
