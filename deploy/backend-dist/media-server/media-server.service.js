@@ -130,11 +130,23 @@ let MediaServerService = class MediaServerService {
         this.sessions.set(sessionId, session);
     }
     processMediaBuffer(session, sessionId) {
-        // Device sends JT808 register/auth frames to this port before streaming JT1078 video
-        if (!session.jt808Authed && session.buffer.length > 0 && session.buffer[0] === 0x7e) {
-            this.handleJT808OnMediaPort(session, sessionId);
-            // If still not authed (more JT808 frames needed), stop
-            if (!session.jt808Authed) return;
+        if (!session.jt808Authed) {
+            // Check for JT1078 magic FIRST — some devices stream directly without JT808 handshake.
+            // Binary JT1078 data often contains 0x7e bytes which would trigger the JT808 path
+            // and block JT1078 processing via the early return below.
+            const _magic = Buffer.from([0x30, 0x31, 0x63, 0x64]);
+            const _magicIdx = session.buffer.indexOf(_magic);
+            if (_magicIdx !== -1) {
+                if (_magicIdx > 0) session.buffer = session.buffer.subarray(_magicIdx);
+                session.jt808Authed = true; // accept stream — simNumber will be set from JT1078 header
+            } else if (session.buffer.length > 0 && session.buffer[0] === 0x7e) {
+                this.handleJT808OnMediaPort(session, sessionId);
+                if (!session.jt808Authed) return;
+            } else {
+                // No JT808 and no JT1078 magic yet — keep tail in case magic is split across packets
+                if (session.buffer.length > 3) session.buffer = session.buffer.subarray(session.buffer.length - 3);
+                return;
+            }
         }
         // After auth the device can send interleaved JT808 frames AND JT1078 video frames
         // Process the buffer by detecting which protocol each chunk belongs to
@@ -156,7 +168,7 @@ let MediaServerService = class MediaServerService {
                     if (msgId === 0x0102 && !session.hasRegistered) {
                         const mediaIp = process.env.MEDIA_SERVER_PUBLIC_IP || '127.0.0.1';
                         const mediaPort = parseInt(process.env.MEDIA_SERVER_PUBLIC_PORT || process.env.MEDIA_SERVER_PORT || '8880');
-                        const cmd9101 = jt808_parser_1_media.JT808Parser.buildRealtimeVideoRequest(phone, 99, mediaIp, mediaPort, mediaPort, 1, 1, 0);
+                        const cmd9101 = jt808_parser_1_media.JT808Parser.buildRealtimeVideoRequest(phone, 99, mediaIp, mediaPort, mediaPort, 1, 0, 0);
                         this.logger.log(`Post-auth 0x0102 from ${phone} — sending 0x9101 on media socket to trigger per-channel connections`);
                         session.socket.write(cmd9101);
                     }
@@ -230,12 +242,8 @@ let MediaServerService = class MediaServerService {
                         // Initial media socket auth — 0x9101 is sent via JT808 control; just mark ready
                         this.logger.log(`Media socket authed for ${phone} — awaiting per-channel connections (0x9101 sent via JT808)`);
                     } else {
-                        // Per-channel connection (did 0x0100+0x0102) — send 0x9101 on this socket to trigger streaming
-                        const mediaIp = process.env.MEDIA_SERVER_PUBLIC_IP || '127.0.0.1';
-                        const mediaPort = parseInt(process.env.MEDIA_SERVER_PUBLIC_PORT || process.env.MEDIA_SERVER_PORT || '8880');
-                        const cmd9101 = jt808_parser_1_media.JT808Parser.buildRealtimeVideoRequest(phone, 99, mediaIp, mediaPort, mediaPort, 1, 1, 0);
-                        this.logger.log(`Per-channel media auth from ${phone} — sending 0x9101 on per-channel media socket`);
-                        session.socket.write(cmd9101);
+                        // Per-channel connection (did 0x0100+0x0102) — already on media port, device will stream JT1078 directly
+                        this.logger.log(`Per-channel media auth from ${phone} — ready to receive JT1078 stream`);
                     }
                 }
             }
@@ -270,6 +278,50 @@ let MediaServerService = class MediaServerService {
         for (let i = 0; i < payload.length; i++) cs ^= payload[i];
         return Buffer.concat([Buffer.from([0x7e]), payload, Buffer.from([cs, 0x7e])]);
     }
+    // Detect whether a JT1078 packet carries H.265 (HEVC) by payload type
+    isHevcPacket(packet) {
+        return packet.payloadType === 0x63 || packet.payloadType === jt1078_parser_1.PT.H265;
+    }
+    startLiveTranscoder(session) {
+        if (session.liveTranscoder) return;
+        try {
+            const proc = (0, child_process_1.spawn)('ffmpeg', [
+                '-hide_banner', '-loglevel', 'error',
+                '-f', 'hevc',
+                '-i', 'pipe:0',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-tune', 'zerolatency',
+                '-profile:v', 'baseline',
+                '-level', '3.1',
+                '-fflags', '+nobuffer',
+                '-flush_packets', '1',
+                '-f', 'h264',
+                'pipe:1',
+            ]);
+            session.liveTranscoder = proc;
+            proc.stdout.on('data', (chunk) => {
+                if (session.simNumber) {
+                    this.gateway.emitFrame(session.simNumber, session.channel, chunk, false);
+                }
+            });
+            proc.stderr.on('data', (d) => {
+                const msg = d.toString().trim();
+                if (msg) this.logger.debug(`[xcode ${session.simNumber}] ${msg}`);
+            });
+            proc.on('error', (e) => {
+                this.logger.error(`Live transcoder error: ${e.message}`);
+                session.liveTranscoder = null;
+            });
+            proc.on('close', () => {
+                this.logger.log(`Live transcoder closed for ${session.simNumber}`);
+                session.liveTranscoder = null;
+            });
+            this.logger.log(`H.265→H.264 transcoder started for ${session.simNumber} ch=${session.channel}`);
+        } catch (e) {
+            this.logger.error(`Could not spawn live transcoder: ${e.message}`);
+        }
+    }
     handlePacket(packet, session, sessionId) {
         if (!session.simNumber) {
             session.simNumber = packet.simNumber;
@@ -293,15 +345,18 @@ let MediaServerService = class MediaServerService {
         const isAudio = jt1078_parser_1.JT1078Parser.isAudio(packet);
         if (isVideo) {
             const annexB = jt1078_parser_1.JT1078Parser.toAnnexB(packet.data);
-            this.gateway.emitFrame(session.simNumber, session.channel, annexB, isKeyFrame);
+            if (this.isHevcPacket(packet)) {
+                // H.265 stream — transcode to H.264 for browser compatibility
+                if (!session.liveTranscoder) this.startLiveTranscoder(session);
+                try { session.liveTranscoder?.stdin.write(annexB); } catch (_) {}
+            } else {
+                this.gateway.emitFrame(session.simNumber, session.channel, annexB, isKeyFrame);
+            }
             if (session.recordingId !== undefined) {
                 session.frameChunks.push(annexB);
                 session.totalBytes += annexB.length;
                 if (session.ffmpegPipe) {
-                    try {
-                        session.ffmpegPipe.write(annexB);
-                    }
-                    catch { }
+                    try { session.ffmpegPipe.write(annexB); } catch { }
                 }
             }
         }
@@ -351,6 +406,10 @@ let MediaServerService = class MediaServerService {
         }
     }
     finalizeSession(session) {
+        if (session.liveTranscoder) {
+            try { session.liveTranscoder.stdin.end(); } catch (_) {}
+            session.liveTranscoder = null;
+        }
         if (session.recordingTimer) {
             clearTimeout(session.recordingTimer);
         }

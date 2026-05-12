@@ -47,15 +47,15 @@ interface CPProps {
 }
 
 function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onFrame, onNoSignal }: CPProps) {
-  const videoId   = `vp-${imei}-${ch}`;
-  const videoRef  = useRef<HTMLVideoElement>(null);
-  const jmuxRef   = useRef<any>(null);
-  const mountRef  = useRef(false);
-  const wrapRef   = useRef<HTMLDivElement>(null);
+  const videoId  = `vp-${imei}-${ch}`;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const jmuxRef  = useRef<any>(null);
+  const mountRef = useRef(false);
+  const wrapRef  = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [muted, setMuted]           = useState(true);
 
-  // JMuxer init
+  // JMuxer init (backend transcodes H.265→H.264, so JMuxer receives H.264)
   useEffect(() => {
     mountRef.current = true;
     const t = setTimeout(() => {
@@ -67,7 +67,6 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
         });
       } catch (_) {}
     }, 150);
-    // No-signal detection after 20 seconds
     const ns = setTimeout(() => { if (!hasFrame) onNoSignal(); }, 20_000);
     return () => {
       clearTimeout(t); clearTimeout(ns);
@@ -207,9 +206,11 @@ export default function LiveStream() {
   const [showIdleWarn, setShowIdleWarn]   = useState(false);
   const lastActivityRef                   = useRef(Date.now());
   const idleTimerRef                      = useRef<ReturnType<typeof setInterval> | null>(null);
-  const statRef = useRef<Map<number, { fps: number; bits: number; last: number }>>(new Map());
+  const statRef      = useRef<Map<number, { fps: number; bits: number; last: number }>>(new Map());
+  const watchImeiRef = useRef<string | null>(null);
+  watchImeiRef.current = watchImei;
 
-  // ── Socket ──────────────────────────────────────────────────────────────────
+  // ── Socket (created once, stable across watchImei changes) ─────────────────
 
   useEffect(() => {
     const token  = localStorage.getItem('token');
@@ -220,10 +221,10 @@ export default function LiveStream() {
     socket.on('connect',    () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
 
-    // FPS / bitrate stats
+    // FPS / bitrate stats — use ref so socket is never recreated on watchImei change
     socket.on('frame', (p: any) => {
       const ch = p.channel;
-      if (p.imei !== watchImei) return;
+      if (p.imei !== watchImeiRef.current) return;
       if (!statRef.current.has(ch)) {
         statRef.current.set(ch, { fps: 0, bits: 0, last: Date.now() });
       }
@@ -246,7 +247,7 @@ export default function LiveStream() {
 
     return () => { socket.disconnect(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchImei]);
+  }, []);
 
   // ── Load online devices ─────────────────────────────────────────────────────
 

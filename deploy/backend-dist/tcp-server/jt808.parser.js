@@ -304,15 +304,17 @@ class JT808Parser {
         return this.buildFrame(MsgId.MULTIMEDIA_UPLOAD_RESPONSE, phone, serialNo, body);
     }
     static buildRealtimeVideoRequest(phone, serialNo, serverIp, serverTcpPort, serverUdpPort, channel, dataType, streamType) {
-        // JT1078 spec: channel(1) + dataType(1) + streamType(1) + serverIP(41) + tcpPort(2) + udpPort(2) = 48 bytes
-        const body = Buffer.alloc(48);
-        body[0] = channel;
-        body[1] = dataType;
-        body[2] = streamType;
-        const ipBytes = Buffer.from(serverIp);
-        ipBytes.copy(body, 3, 0, Math.min(ipBytes.length, 41));
-        body.writeUInt16BE(serverTcpPort, 44);
-        body.writeUInt16BE(serverUdpPort, 46);
+        // JT1078-2016 Table 17: ipLen(1) + ip(n) + tcpPort(2) + udpPort(2) + channel(1) + dataType(1) + streamType(1)
+        const ipBytes = Buffer.from(serverIp, 'ascii');
+        const n = ipBytes.length;
+        const body = Buffer.alloc(1 + n + 7);
+        body[0] = n;
+        ipBytes.copy(body, 1);
+        body.writeUInt16BE(serverTcpPort, 1 + n);
+        body.writeUInt16BE(serverUdpPort, 3 + n);
+        body[5 + n] = channel;
+        body[6 + n] = dataType;
+        body[7 + n] = streamType;
         return this.buildFrame(MsgId.REALTIME_VIDEO_REQUEST, phone, serialNo, body);
     }
     static buildVideoControl(phone, serialNo, channel, command, closeType) {

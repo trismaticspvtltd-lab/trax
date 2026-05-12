@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ssh -i /c/Users/AnilSurduse/Downloads/traxlogi-key.pem ubuntu@34.228.231.76 \"pm2 logs traxlogi --lines 120 --nostream 2>&1 | grep -E '\\(Device connected|Device auth|Media connection|Media socket auth|Media stream|Per-channel|Post-auth|0x9101|JT1078 packet|Device disconn|Media stream closed|registered|0x0100|port JT808\\)' | head -80\")"
+      "Bash(ssh -i /c/Users/AnilSurduse/Downloads/traxlogi-key.pem ubuntu@34.228.231.76 \"pm2 logs traxlogi --lines 120 --nostream 2>&1 | grep -E '\\(Device connected|Device auth|Media connection|Media socket auth|Media stream|Per-channel|Post-auth|0x9101|JT1078 packet|Device disconn|Media stream closed|registered|0x0100|port JT808\\)' | head -80\")",
+      "Bash(find \"c:/Users/AnilSurduse/\" -maxdepth 4 -name \"*.pem\" 2>/dev/null | grep -v \"AppData/Local/Temp\" | head -20)",
+      "Read(//c/Users/AnilSurduse/**)"
     ]
   }
 }

@@ -282,7 +282,7 @@ let TcpServerService = class TcpServerService {
                 if (session.socket.writable) {
                     this.logger.log(`Auto 0x9101 after JT808 auth for ${phoneNumber}`);
                     session.serialNo++;
-                    session.socket.write(jt808_parser_1.JT808Parser.buildRealtimeVideoRequest(session.phone, session.serialNo, mediaIp, mediaPort, mediaPort, 1, 1, 0));
+                    session.socket.write(jt808_parser_1.JT808Parser.buildRealtimeVideoRequest(session.phone, session.serialNo, mediaIp, mediaPort, mediaPort, 1, 0, 0));
                 }
             }, 800);
         } else {
@@ -291,7 +291,7 @@ let TcpServerService = class TcpServerService {
             const mediaPort = parseInt(process.env.MEDIA_SERVER_PUBLIC_PORT || process.env.MEDIA_SERVER_PORT || '8880');
             this.logger.log(`Per-channel JT808 auth for ${phoneNumber} — sending 0x9101 on per-channel socket`);
             session.serialNo++;
-            session.socket.write(jt808_parser_1.JT808Parser.buildRealtimeVideoRequest(session.phone, session.serialNo, mediaIp, mediaPort, mediaPort, 1, 1, 0));
+            session.socket.write(jt808_parser_1.JT808Parser.buildRealtimeVideoRequest(session.phone, session.serialNo, mediaIp, mediaPort, mediaPort, 1, 0, 0));
         }
     }
     handleHeartbeat(message, session) {

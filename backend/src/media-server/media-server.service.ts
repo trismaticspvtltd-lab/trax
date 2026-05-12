@@ -3,6 +3,7 @@ import * as net from 'net';
 import { spawn, ChildProcess } from 'child_process';
 import { Readable, PassThrough } from 'stream';
 import { JT1078Parser, JT1078Packet, DATA_TYPE, JT1078_HEADER_LEN } from '../tcp-server/jt1078.parser';
+import { JT808Parser, MsgId } from '../tcp-server/jt808.parser';
 import { VideoRecordingsService } from '../video-recordings/video-recordings.service';
 import { MediaServerGateway } from './media-server.gateway';
 import { S3Service } from '../s3/s3.service';
@@ -107,39 +108,91 @@ export class MediaServerService implements OnModuleInit, OnModuleDestroy {
 
   private processMediaBuffer(session: ActiveMediaSession, sessionId: string) {
     while (true) {
-      // Find the JT1078 magic bytes
-      const magic = Buffer.from([0x30, 0x31, 0x63, 0x64]);
-      const start = session.buffer.indexOf(magic);
+      // Try JT1078 first
+      const jt1078Magic = Buffer.from([0x30, 0x31, 0x63, 0x64]);
+      let start = session.buffer.indexOf(jt1078Magic);
+      if (start !== -1) {
+        if (start > 0) {
+          session.buffer = session.buffer.subarray(start);
+        }
+        if (session.buffer.length < JT1078_HEADER_LEN) break;
+        const dataLen = session.buffer.readUInt16BE(28);
+        const totalLen = JT1078_HEADER_LEN + dataLen;
+        if (session.buffer.length < totalLen) break;
+        const packet = JT1078Parser.parsePacket(session.buffer);
+        session.buffer = session.buffer.subarray(totalLen);
+        if (packet) {
+          this.handleJT1078Packet(packet, session, sessionId);
+        }
+        continue;
+      }
+
+      // Try JT808
+      start = session.buffer.indexOf(0x7e);
       if (start === -1) {
-        // No magic found — keep the last 3 bytes in case magic spans packets
         if (session.buffer.length > 3) {
           session.buffer = session.buffer.subarray(session.buffer.length - 3);
         }
         break;
       }
-
       if (start > 0) {
         session.buffer = session.buffer.subarray(start);
       }
-
-      // We need at least a full header to read the data length
-      if (session.buffer.length < JT1078_HEADER_LEN) break;
-
-      const dataLen  = session.buffer.readUInt16BE(28);
-      const totalLen = JT1078_HEADER_LEN + dataLen;
-
-      if (session.buffer.length < totalLen) break;
-
-      const packet = JT1078Parser.parsePacket(session.buffer);
-      session.buffer = session.buffer.subarray(totalLen);
-
-      if (packet) {
-        this.handlePacket(packet, session, sessionId);
+      const end = session.buffer.indexOf(0x7e, 1);
+      if (end === -1) break;
+      const frame = session.buffer.slice(0, end + 1);
+      session.buffer = session.buffer.subarray(end + 1);
+      try {
+        const message = JT808Parser.parseFrame(frame);
+        if (message) {
+          this.handleJT808Message(message, session, sessionId);
+        }
+      } catch (err) {
+        this.logger.warn(`JT808 parse error in media: ${err.message}`);
       }
     }
   }
 
-  private handlePacket(packet: JT1078Packet, session: ActiveMediaSession, sessionId: string) {
+  private handleJT808Message(message: any, session: ActiveMediaSession, sessionId: string) {
+    const { messageId, phoneNumber, messageBody } = message;
+    
+    // Initialize stream on first contact
+    if (!session.simNumber) {
+      session.simNumber = phoneNumber;
+      session.channel = 1; // default
+      this.logger.log(`JT808 Stream identified: SIM=${phoneNumber} ch=${session.channel}`);
+      this.gateway.emitStreamEvent(phoneNumber, session.channel, 'live');
+    }
+
+    // Only process actual video/multimedia data
+    if (messageId === MsgId.MULTIMEDIA_DATA) {
+      this.logger.debug(`Media JT808 msg=0x0801 (MULTIMEDIA_DATA) from ${phoneNumber}`);
+      try {
+        const media = JT808Parser.parseMultimediaData(messageBody);
+        // 0 = JPEG, 1 = TIF, 2 = MP3, 3 = WAV, 4 = WMV, etc.
+        // Video is typically in type 4 or embedded in type 0
+        if (media.mediaType === 0 || media.mediaType === 4) { 
+          this.logger.log(`Video frame received: ${media.data.length}b from ${phoneNumber}`);
+          this.gateway.emitFrame(session.simNumber, session.channel, media.data, true);
+          if (session.recordingId !== undefined) {
+            session.frameChunks.push(media.data);
+            session.totalBytes += media.data.length;
+          }
+        }
+      } catch (err) {
+        this.logger.error(`Failed to parse multimedia data: ${err.message}`);
+      }
+    } else if (messageId === MsgId.LOCATION_BULK || messageId === MsgId.LOCATION_REPORT) {
+      // Location data on media port — ignore for video streaming
+      // These are GPS coordinates, not video frames
+      this.logger.debug(`Location msg=0x${messageId.toString(16).padStart(4, '0')} from ${phoneNumber} (ignored for video)`);
+    } else {
+      // Log other message types for debugging
+      this.logger.debug(`Other JT808 msg=0x${messageId.toString(16).padStart(4, '0')} on media port from ${phoneNumber}`);
+    }
+  }
+
+  private handleJT1078Packet(packet: JT1078Packet, session: ActiveMediaSession, sessionId: string) {
     // First packet — identify the stream
     if (!session.simNumber) {
       session.simNumber = packet.simNumber;
