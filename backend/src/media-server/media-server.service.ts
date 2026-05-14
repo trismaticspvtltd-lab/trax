@@ -26,6 +26,7 @@ interface ActiveMediaSession {
   mp4Chunks: Buffer[];          // ffmpeg output (MP4 bytes)
   fragmentBuffer: Buffer;       // reassembly buffer for fragmented JT1078 packets
   liveTranscoderPipe?: PassThrough;  // H.265→H.264 live transcoder input pipe
+  serialNo: number;             // platform→device sequence counter for JT808 responses
 }
 
 @Injectable()
@@ -81,6 +82,7 @@ export class MediaServerService implements OnModuleInit, OnModuleDestroy {
       totalBytes: 0,
       mp4Chunks: [],
       fragmentBuffer: Buffer.alloc(0),
+      serialNo: 0,
     };
 
     socket.on('data', (data) => {
@@ -157,41 +159,81 @@ export class MediaServerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleJT808Message(message: any, session: ActiveMediaSession, sessionId: string) {
-    const { messageId, phoneNumber, messageBody } = message;
-    
+    const { messageId, phoneNumber, messageBody, serialNumber } = message;
+
     // Initialize stream on first contact
     if (!session.simNumber) {
       session.simNumber = phoneNumber;
-      session.channel = 1; // default
+      session.channel = 1;
       this.logger.log(`JT808 Stream identified: SIM=${phoneNumber} ch=${session.channel}`);
-      this.gateway.emitStreamEvent(phoneNumber, session.channel, 'live');
     }
 
-    // Only process actual video/multimedia data
-    if (messageId === MsgId.MULTIMEDIA_DATA) {
-      this.logger.debug(`Media JT808 msg=0x0801 (MULTIMEDIA_DATA) from ${phoneNumber}`);
-      try {
-        const media = JT808Parser.parseMultimediaData(messageBody);
-        // 0 = JPEG, 1 = TIF, 2 = MP3, 3 = WAV, 4 = WMV, etc.
-        // Video is typically in type 4 or embedded in type 0
-        if (media.mediaType === 0 || media.mediaType === 4) { 
-          this.logger.log(`Video frame received: ${media.data.length}b from ${phoneNumber}`);
-          this.gateway.emitFrame(session.simNumber, session.channel, media.data, true);
-          if (session.recordingId !== undefined) {
-            session.frameChunks.push(media.data);
-            session.totalBytes += media.data.length;
+    session.serialNo++;
+
+    switch (messageId) {
+      // ── Authentication (0x0102): device authenticates before sending video ─────
+      case MsgId.TERMINAL_AUTH:
+        this.logger.log(`Media port auth from ${phoneNumber} — sending ACK`);
+        session.socket.write(
+          JT808Parser.buildGeneralResponse(phoneNumber, session.serialNo, serialNumber, MsgId.TERMINAL_AUTH, 0),
+        );
+        // Now the device is authenticated — emit 'live' so frontend knows stream started
+        this.gateway.emitStreamEvent(phoneNumber, session.channel, 'live');
+        break;
+
+      // ── Registration (0x0100): some devices register before streaming ─────────
+      case MsgId.TERMINAL_REGISTER:
+        this.logger.log(`Media port register from ${phoneNumber} — sending ACK`);
+        session.socket.write(
+          JT808Parser.buildRegistrationResponse(phoneNumber, session.serialNo, serialNumber, 0, `AUTH_${phoneNumber.slice(-6)}`),
+        );
+        break;
+
+      // ── Heartbeat (0x0002): keep connection alive ─────────────────────────────
+      case MsgId.HEARTBEAT:
+        session.socket.write(
+          JT808Parser.buildGeneralResponse(phoneNumber, session.serialNo, serialNumber, MsgId.HEARTBEAT, 0),
+        );
+        break;
+
+      // ── Multimedia data (0x0801): actual video/photo frame ────────────────────
+      case MsgId.MULTIMEDIA_DATA:
+        this.logger.debug(`MULTIMEDIA_DATA from ${phoneNumber}`);
+        try {
+          const media = JT808Parser.parseMultimediaData(messageBody);
+          if (media.mediaType === 0 || media.mediaType === 4) {
+            this.logger.log(`Video frame received: ${media.data.length}b from ${phoneNumber}`);
+            this.gateway.emitFrame(session.simNumber, session.channel, media.data, true);
+            if (session.recordingId !== undefined) {
+              session.frameChunks.push(media.data);
+              session.totalBytes += media.data.length;
+            }
           }
+          // ACK the multimedia upload
+          session.socket.write(
+            JT808Parser.buildGeneralResponse(phoneNumber, session.serialNo, serialNumber, MsgId.MULTIMEDIA_DATA, 0),
+          );
+        } catch (err: any) {
+          this.logger.error(`Failed to parse multimedia data: ${err.message}`);
         }
-      } catch (err) {
-        this.logger.error(`Failed to parse multimedia data: ${err.message}`);
-      }
-    } else if (messageId === MsgId.LOCATION_BULK || messageId === MsgId.LOCATION_REPORT) {
-      // Location data on media port — ignore for video streaming
-      // These are GPS coordinates, not video frames
-      this.logger.debug(`Location msg=0x${messageId.toString(16).padStart(4, '0')} from ${phoneNumber} (ignored for video)`);
-    } else {
-      // Log other message types for debugging
-      this.logger.debug(`Other JT808 msg=0x${messageId.toString(16).padStart(4, '0')} on media port from ${phoneNumber}`);
+        break;
+
+      // ── Location/bulk — ignore ─────────────────────────────────────────────────
+      case MsgId.LOCATION_BULK:
+      case MsgId.LOCATION_REPORT:
+        this.logger.debug(`Location msg on media port from ${phoneNumber} (ignored)`);
+        break;
+
+      // ── General response from device — no reply needed ────────────────────────
+      case MsgId.TERMINAL_GENERAL_RESPONSE:
+        break;
+
+      default:
+        this.logger.debug(`Other JT808 msg=0x${messageId.toString(16).padStart(4, '0')} on media port from ${phoneNumber}`);
+        // Send a general ACK so the device knows the platform is alive
+        session.socket.write(
+          JT808Parser.buildGeneralResponse(phoneNumber, session.serialNo, serialNumber, messageId, 0),
+        );
     }
   }
 
