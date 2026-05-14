@@ -30,6 +30,10 @@ export class DevicesService {
     return this.deviceRepository.findOne({ where: { imei } });
   }
 
+  async findBySimNumber(simNumber: string) {
+    return this.deviceRepository.findOne({ where: { simNumber } });
+  }
+
   async create(data: Partial<Device>) {
     const device = this.deviceRepository.create(data);
     return this.deviceRepository.save(device);

@@ -176,15 +176,20 @@ export class TcpServerService implements OnModuleInit, OnModuleDestroy {
       const regInfo = JT808Parser.parseRegistration(messageBody);
       this.logger.log(`Device registered: ${phoneNumber} - ${regInfo.plateNumber}`);
 
-      let device = await this.devicesService.findByImei(phoneNumber);
+      // Look up by simNumber first (JT808 phone field = SIM number), then by imei for backwards compat
+      let device = await this.devicesService.findBySimNumber(phoneNumber)
+                || await this.devicesService.findByImei(phoneNumber);
       if (!device) {
         device = await this.devicesService.create({
           imei: phoneNumber,
+          simNumber: phoneNumber,
           name: regInfo.plateNumber || `Device ${phoneNumber}`,
           plateNumber: regInfo.plateNumber,
           model: regInfo.terminalModel,
           isActive: true,
         });
+      } else if (!device.simNumber) {
+        await this.devicesService.update(device.id, { simNumber: phoneNumber });
       }
 
       const authCode = `AUTH_${phoneNumber.slice(-6)}`;
@@ -206,13 +211,18 @@ export class TcpServerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Device authenticated: ${phoneNumber}`);
     session.authenticated = true;
 
-    let device = await this.devicesService.findByImei(phoneNumber);
+    // Look up by simNumber first (JT808 phone field = SIM number), then by imei for backwards compat
+    let device = await this.devicesService.findBySimNumber(phoneNumber)
+              || await this.devicesService.findByImei(phoneNumber);
     if (!device) {
       device = await this.devicesService.create({
         imei: phoneNumber,
+        simNumber: phoneNumber,
         name: `Device ${phoneNumber}`,
         isActive: true,
       });
+    } else if (!device.simNumber) {
+      await this.devicesService.update(device.id, { simNumber: phoneNumber });
     }
 
     session.socket.write(
@@ -597,7 +607,7 @@ export class TcpServerService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  sendRealtimeVideoRequest(
+  async sendRealtimeVideoRequest(
     imei: string,
     serverIp: string,
     serverTcpPort: number,
@@ -605,9 +615,22 @@ export class TcpServerService implements OnModuleInit, OnModuleDestroy {
     channel: number,
     dataType = 0,
     streamType = 0,
-  ): boolean {
-    const s = this.getSession(imei);
-    if (!s) return false;
+  ): Promise<boolean> {
+    this.logger.log(`sendRealtimeVideoRequest: imei=${imei} target=${serverIp}:${serverTcpPort} ch=${channel}`);
+    let s = this.getSession(imei);
+    if (!s) {
+      // IMEI not found directly — look up device's simNumber and retry
+      const device = await this.devicesService.findByImei(imei).catch(() => null);
+      if (device?.simNumber) {
+        s = this.getSession(device.simNumber);
+      }
+    }
+    if (!s) {
+      const connected = [...this.sessions.values()].map(x => `${x.imei}/${x.phone}`).join(', ') || '(none)';
+      this.logger.warn(`sendRealtimeVideoRequest: no session for "${imei}". Connected: ${connected}`);
+      return false;
+    }
+    this.logger.log(`sendRealtimeVideoRequest: sending 0x9101 to ${s.phone} (writable=${s.socket.writable})`);
     s.serialNo++;
     s.socket.write(
       JT808Parser.buildRealtimeVideoRequest(s.phone, s.serialNo, serverIp, serverTcpPort, serverUdpPort, channel, dataType, streamType),

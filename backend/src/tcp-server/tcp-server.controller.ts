@@ -143,7 +143,7 @@ export class TcpServerController {
   // dataType: 0=audio+video,1=audio only,2=video only,3=bidirectional audio
   // streamType: 0=main stream,1=sub stream
   @Post(':imei/control/video')
-  requestVideo(
+  async requestVideo(
     @Param('imei') imei: string,
     @Body() body: {
       serverIp: string;
@@ -156,17 +156,20 @@ export class TcpServerController {
   ) {
     if (!body.serverIp || !body.serverTcpPort)
       throw new BadRequestException('serverIp and serverTcpPort required');
-    const sent = this.tcpServerService.sendRealtimeVideoRequest(
+
+    // Try JT808 control channel (port 8808)
+    const sent = await this.tcpServerService.sendRealtimeVideoRequest(
       imei,
       body.serverIp,
       body.serverTcpPort,
       body.serverUdpPort ?? body.serverTcpPort,
       body.channel    ?? 1,
-      body.dataType   ?? 0,
+      body.dataType   ?? 2,
       body.streamType ?? 0,
     );
-    if (!sent) throw new NotFoundException(`Device ${imei} not connected`);
-    return { sent: true };
+    // If device is not on port 8808, it is connected to media port 8880 directly and
+    // will receive 0x9101 automatically when it next authenticates there.
+    return { sent, note: sent ? undefined : 'Device not on control port; stream will start automatically via media port' };
   }
 
   // ── Video stream control (0x9102) ────────────────────────────────────────────

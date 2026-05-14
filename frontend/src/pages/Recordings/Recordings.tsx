@@ -33,7 +33,7 @@ interface RecordingsResponse {
 }
 
 interface Filters {
-  type: '' | 'alarm' | 'manual';
+  type: '' | 'alarm' | 'manual' | 'live';
   status: '' | 'complete' | 'failed' | 'pending';
   from: string;
   to: string;
@@ -455,6 +455,7 @@ export default function Recordings() {
               <option value="">All Types</option>
               <option value="alarm">Alarm</option>
               <option value="manual">Manual</option>
+              <option value="live">Live Stream</option>
             </select>
           </div>
 

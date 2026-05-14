@@ -557,15 +557,17 @@ export class JT808Parser {
     serverIp: string, serverTcpPort: number, serverUdpPort: number,
     channel: number, dataType: number, streamType: number,
   ): Buffer {
-    // JT1078 spec: channel(1) + dataType(1) + streamType(1) + serverIP(41) + tcpPort(2) + udpPort(2) = 48 bytes
-    const body = Buffer.alloc(48);
-    body[0] = channel;
-    body[1] = dataType;
-    body[2] = streamType;
-    const ipBytes = Buffer.from(serverIp);
-    ipBytes.copy(body, 3, 0, Math.min(ipBytes.length, 41));
-    body.writeUInt16BE(serverTcpPort, 44);
-    body.writeUInt16BE(serverUdpPort, 46);
+    // JT/T 1078-2016 Table 17: ipLen(1) + ip(n) + tcpPort(2) + udpPort(2) + channel(1) + dataType(1) + streamType(1)
+    const ipBytes = Buffer.from(serverIp, 'ascii');
+    const n = ipBytes.length;
+    const body = Buffer.alloc(n + 8);
+    body[0] = n;                               // IP address length
+    ipBytes.copy(body, 1);                     // IP address string
+    body.writeUInt16BE(serverTcpPort, 1 + n);  // TCP port
+    body.writeUInt16BE(serverUdpPort, 3 + n);  // UDP port
+    body[5 + n] = channel;                     // logical channel number
+    body[6 + n] = dataType;                    // data type: 0=audio+video,1=audio,2=video,3=bidirectional
+    body[7 + n] = streamType;                  // bit stream type: 0=main,1=sub
     return this.buildFrame(MsgId.REALTIME_VIDEO_REQUEST, phone, serialNo, body);
   }
 

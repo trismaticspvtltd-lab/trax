@@ -11,7 +11,23 @@ import './LiveStream.css';
 const SOCKET_URL  = process.env.REACT_APP_SOCKET_URL  || '';
 const MEDIA_IP    = process.env.REACT_APP_MEDIA_SERVER_IP   || window.location.hostname;
 const MEDIA_PORT  = parseInt(process.env.REACT_APP_MEDIA_SERVER_PORT || '8880');
-const IDLE_SEC    = 180; // auto-stop after 3 min idle
+const IDLE_SEC    = 180;
+
+// ── G.711 A-law decode table (built once at module load) ─────────────────────
+// Maps each 8-bit A-law byte to a normalized float32 in [-1, 1].
+const ALAW_DECODE = (() => {
+  const t = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let v = i ^ 0x55;
+    const sign = (v & 0x80) ? -1 : 1;
+    v &= 0x7f;
+    const exp = v >> 4;
+    const man = v & 0x0f;
+    const linear = exp === 0 ? (man << 1) | 1 : ((man | 0x10) << exp) | (1 << (exp - 1));
+    t[i] = sign * linear / 4096;
+  }
+  return t;
+})();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,9 +69,20 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
   const mountRef = useRef(false);
   const wrapRef  = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [muted, setMuted]           = useState(true);
+  const [muted, setMuted]           = useState(false);
+  const mutedRef                    = useRef(muted);
+  mutedRef.current = muted;
 
-  // JMuxer init (backend transcodes H.265→H.264, so JMuxer receives H.264)
+  // Web Audio API refs for G.711A playback
+  const audioCtxRef     = useRef<AudioContext | null>(null);
+  const nextPlayTimeRef = useRef(0);
+  const [hasAudio, setHasAudio] = useState(false);
+  const hasAudioRef = useRef(false);
+  // Tracks whether JMuxer actually decoded any video (separate from hasFrame which includes audio)
+  const [hasVideo, setHasVideo] = useState(false);
+  const hasVideoRef = useRef(false);
+
+  // JMuxer init — handles H.264 video if/when the device sends it
   useEffect(() => {
     mountRef.current = true;
     const t = setTimeout(() => {
@@ -77,7 +104,14 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
 
-  // Frame feed
+  // Clean up AudioContext on unmount
+  useEffect(() => {
+    return () => {
+      try { audioCtxRef.current?.close(); } catch (_) {}
+    };
+  }, []);
+
+  // Video frame feed (H.264)
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
@@ -93,6 +127,10 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
                   : Buffer.from(p.video).buffer,
             );
         jmuxRef.current.feed({ video: bytes });
+        if (!hasVideoRef.current) {
+          hasVideoRef.current = true;
+          setHasVideo(true);
+        }
         onFrame();
       } catch (_) {}
     };
@@ -101,7 +139,64 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imei, ch]);
 
-  useEffect(() => { if (videoRef.current) videoRef.current.muted = muted; }, [muted]);
+  // Audio frame feed (G.711A A-law at 8 kHz)
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const handler = (p: any) => {
+      if (p.imei !== imei || p.channel !== ch) return;
+      try {
+        const raw = p.audio;
+        const bytes: Uint8Array =
+          raw instanceof Uint8Array ? raw
+          : raw instanceof ArrayBuffer ? new Uint8Array(raw)
+          : new Uint8Array(Buffer.from(raw).buffer);
+
+        // Initialize AudioContext lazily (browsers require user gesture)
+        if (!audioCtxRef.current) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          audioCtxRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 8000 });
+          nextPlayTimeRef.current = audioCtxRef.current!.currentTime;
+        }
+        const ctx = audioCtxRef.current!;
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+        if (!mutedRef.current) {
+          // Decode G.711A → float32 PCM and schedule playback gaplessly
+          const audioBuffer = ctx.createBuffer(1, bytes.length, 8000);
+          const ch0 = audioBuffer.getChannelData(0);
+          for (let i = 0; i < bytes.length; i++) ch0[i] = ALAW_DECODE[bytes[i]];
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          const now = ctx.currentTime;
+          const startAt = Math.max(now, nextPlayTimeRef.current);
+          source.start(startAt);
+          nextPlayTimeRef.current = startAt + audioBuffer.duration;
+        }
+
+        if (!hasAudioRef.current) {
+          hasAudioRef.current = true;
+          setHasAudio(true);
+        }
+        onFrame(); // mark channel as LIVE
+      } catch (_) {}
+    };
+
+    socket.on('audio_frame', handler);
+    return () => { socket.off('audio_frame', handler); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imei, ch]);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+    // For audio: suspend/resume the AudioContext
+    if (audioCtxRef.current) {
+      if (muted) audioCtxRef.current.suspend().catch(() => {});
+      else       audioCtxRef.current.resume().catch(() => {});
+    }
+  }, [muted]);
 
   useEffect(() => {
     const fn = () => setFullscreen(!!document.fullscreenElement);
@@ -131,6 +226,8 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
   };
 
   const isLive = state === 'live';
+  // audioOnly: audio has arrived but JMuxer hasn't decoded any actual video frames
+  const audioOnly = hasAudio && !hasVideo;
 
   return (
     <div className="cp-root" ref={wrapRef}>
@@ -139,12 +236,28 @@ function ChannelPlayer({ imei, ch, state, hasFrame, fps, bitrate, socketRef, onF
         <span className="cp-ch-label">CH {ch}</span>
         {isLive && fps > 0 && <span className="cp-stat">{fps}fps</span>}
         {isLive && bitrate > 0 && <span className="cp-stat">{bitrate}k</span>}
+        {isLive && audioOnly && <span className="cp-stat cp-stat-audio">AUDIO</span>}
         <span className={`cp-dot ${state}`} />
       </div>
 
       {/* Video */}
       <div className="cp-video-area">
         <video id={videoId} ref={videoRef} className="cp-video" autoPlay muted playsInline />
+
+        {/* Audio-only overlay */}
+        {audioOnly && state === 'live' && (
+          <div className="cp-overlay cp-overlay-audio">
+            <svg viewBox="0 0 24 24" fill="none" width="48" height="48">
+              <circle cx="12" cy="12" r="10" stroke="#22c55e" strokeWidth="1.5" opacity="0.3"/>
+              <path d="M9 9a3 3 0 0 1 6 0v3a3 3 0 0 1-6 0V9z" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M7 13a5 5 0 0 0 10 0" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="12" y1="18" x2="12" y2="20" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            <span style={{ color: '#22c55e', fontSize: 12, marginTop: 6 }}>
+              {muted ? 'Audio (muted)' : 'Audio streaming'}
+            </span>
+          </div>
+        )}
 
         {/* No signal */}
         {state === 'no-signal' && (
@@ -210,7 +323,7 @@ export default function LiveStream() {
   const watchImeiRef = useRef<string | null>(null);
   watchImeiRef.current = watchImei;
 
-  // ── Socket (created once, stable across watchImei changes) ─────────────────
+  // ── Socket (created once) ───────────────────────────────────────────────────
 
   useEffect(() => {
     const token  = localStorage.getItem('token');
@@ -221,8 +334,8 @@ export default function LiveStream() {
     socket.on('connect',    () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
 
-    // FPS / bitrate stats — use ref so socket is never recreated on watchImei change
-    socket.on('frame', (p: any) => {
+    // FPS / bitrate stats — track from both frame and audio_frame events
+    const trackStats = (p: any, byteField: 'video' | 'audio') => {
       const ch = p.channel;
       if (p.imei !== watchImeiRef.current) return;
       if (!statRef.current.has(ch)) {
@@ -230,7 +343,8 @@ export default function LiveStream() {
       }
       const s = statRef.current.get(ch)!;
       s.fps++;
-      s.bits += (p.video?.length ?? p.video?.byteLength ?? 0) * 8;
+      const payload = p[byteField];
+      s.bits += (payload?.length ?? payload?.byteLength ?? 0) * 8;
       const now = Date.now();
       if (now - s.last >= 1000) {
         const fps     = s.fps;
@@ -243,7 +357,10 @@ export default function LiveStream() {
           return next;
         });
       }
-    });
+    };
+
+    socket.on('frame',       (p: any) => trackStats(p, 'video'));
+    socket.on('audio_frame', (p: any) => trackStats(p, 'audio'));
 
     return () => { socket.disconnect(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -276,7 +393,6 @@ export default function LiveStream() {
     return () => { events.forEach(e => document.removeEventListener(e, resetActivity)); };
   }, [resetActivity]);
 
-  // Idle countdown (only while watching)
   useEffect(() => {
     if (!watchImei) {
       if (idleTimerRef.current) clearInterval(idleTimerRef.current);
@@ -302,7 +418,6 @@ export default function LiveStream() {
     resetActivity();
     statRef.current.clear();
 
-    // Build initial channel map
     const initMap = new Map<number, Channel>();
     for (let ch = 1; ch <= count; ch++) {
       initMap.set(ch, {
@@ -312,26 +427,22 @@ export default function LiveStream() {
     }
     setChannels(initMap);
 
-    // Subscribe all channels to WebSocket room
     const socket = socketRef.current;
     for (let ch = 1; ch <= count; ch++) {
       socket?.emit('subscribe_stream', { imei: device.imei, channel: ch });
     }
 
-    // Send 0x9101 for each channel (stagger 200ms apart to avoid flooding)
+    // Send 0x9101 for each channel staggered 200ms apart
     for (let ch = 1; ch <= count; ch++) {
       const thisCh = ch;
       setTimeout(async () => {
         try {
           await deviceCommandsApi.requestVideo(device.imei, {
             channel: thisCh,
-            resolution: 0,
-            frameRate: 25,
-            keyFrameInterval: 50,
             serverIp: MEDIA_IP,
             serverTcpPort: MEDIA_PORT,
-            dataType: 0,
-            streamType: 0,
+            dataType: 0,     // 0 = audio+video
+            streamType: 0,   // 0 = main stream
           });
         } catch (_) {}
       }, (ch - 1) * 200);
@@ -351,7 +462,6 @@ export default function LiveStream() {
       });
       return next;
     });
-    // Send stop command
     deviceCommandsApi.videoControl?.(watchImei, { channel: 0, command: 0 }).catch(() => {});
     setWatchImei(null);
     setShowIdleWarn(false);
@@ -378,8 +488,6 @@ export default function LiveStream() {
       return next;
     });
   }, []);
-
-  // ── Derived ─────────────────────────────────────────────────────────────────
 
   const chList = useMemo(() => Array.from(channels.values()), [channels]);
   const liveCount = chList.filter(c => c.state === 'live').length;
@@ -424,7 +532,6 @@ export default function LiveStream() {
             <span className="ls-panel-count">{devices.length}</span>
           </div>
 
-          {/* Channel count selector */}
           <div className="ls-ch-selector">
             <span className="ls-ch-label">Channels:</span>
             {[1, 2, 4, 6, 8].map(n => (
@@ -488,7 +595,6 @@ export default function LiveStream() {
             </div>
           ) : (
             <div className="ls-watch-container">
-              {/* Device title bar */}
               <div className="ls-watch-titlebar">
                 <div className="ls-watch-info">
                   <span className="ls-watch-name">{watchName}</span>
@@ -508,7 +614,6 @@ export default function LiveStream() {
                 )}
               </div>
 
-              {/* Multi-channel grid */}
               <div className={`ls-ch-grid ls-ch-grid-${chCount}`}>
                 {chList.map(c => (
                   <div key={c.ch} className="ls-ch-cell">

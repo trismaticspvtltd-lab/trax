@@ -1,20 +1,18 @@
-// JT/T 1078-2016 Media Packet Parser
-// Header: 30 bytes total
+// JT/T 1078 Media Packet Parser — T98 device format (26-byte header)
 // [0-3]   Magic: 0x30 0x31 0x63 0x64
-// [4-9]   SIM BCD (6 bytes, 12-digit phone)
-// [10]    Channel number (1-8)
-// [11]    { subPacketType[7:4] | dataType[3:0] }
-// [12]    Payload type (PT)  0x19=H.264, 0x1A=H.265, 0x1C=G.711A, 0x1D=G.711U, 0x1E=G.726, 0x1F=AAC
-// [13]    Stream ID
-// [14-15] Packet sequence (uint16 BE)
-// [16-23] Timestamp in ms (uint64 BE — read as two uint32 to avoid BigInt issues)
-// [24-25] Last I-frame interval ms (uint16 BE)
-// [26-27] Last frame interval ms (uint16 BE)
-// [28-29] Data length (uint16 BE)
-// [30+]   Payload
+// [4]     RTP flags (V=2|P|X|CC)  e.g. 0x81
+// [5]     RTP M|PT byte           e.g. 0x86 → M=1, PT=6 (video on this device)
+// [6-7]   Packet sequence (uint16 BE)
+// [8-13]  SIM BCD (6 bytes, 12-digit phone)
+// [14]    Channel number (1-8)
+// [15]    { subPacketType[7:4] | dataType[3:0] }
+// [16-19] Timestamp in ms (uint32 BE)
+// [20-23] Last I-frame timestamp in ms (uint32 BE)
+// [24-25] Data length (uint16 BE)
+// [26+]   Payload
 
 export const JT1078_MAGIC = Buffer.from([0x30, 0x31, 0x63, 0x64]);
-export const JT1078_HEADER_LEN = 30;
+export const JT1078_HEADER_LEN = 26;
 
 export const PT = {
   H264:  0x19,
@@ -68,28 +66,23 @@ export class JT1078Parser {
       if (buf[offset + i] !== JT1078_MAGIC[i]) return null;
     }
 
+    // [4] RTP flags, [5] M|PT → extract PT from lower 7 bits
+    const payloadType = buf[offset + 5] & 0x7f;
+    const sequence    = buf.readUInt16BE(offset + 6);
+
     const simNumber = buf
-      .subarray(offset + 4, offset + 10)
+      .subarray(offset + 8, offset + 14)
       .toString('hex')
       .replace(/^0+/, '') || '0';
 
-    const channel       = buf[offset + 10];
-    const typeByte      = buf[offset + 11];
+    const channel       = buf[offset + 14];
+    const typeByte      = buf[offset + 15];
     const dataType      = typeByte & 0x0f;
     const subPacketType = (typeByte >> 4) & 0x0f;
-    const payloadType   = buf[offset + 12];
-    const streamId      = buf[offset + 13];
-    const sequence      = buf.readUInt16BE(offset + 14);
 
-    // Read 8-byte timestamp as two 32-bit values to stay in JS safe integer range
-    const tsHi  = buf.readUInt32BE(offset + 16);
-    const tsLo  = buf.readUInt32BE(offset + 20);
-    // Combine: hi * 2^32 + lo — safe up to ~285 years of milliseconds
-    const timestampMs = tsHi * 4294967296 + tsLo;
-
-    const lastIFrameIntervalMs = buf.readUInt16BE(offset + 24);
-    const lastFrameIntervalMs  = buf.readUInt16BE(offset + 26);
-    const dataLength           = buf.readUInt16BE(offset + 28);
+    const timestampMs          = buf.readUInt32BE(offset + 16);
+    const lastIFrameIntervalMs = buf.readUInt32BE(offset + 20);
+    const dataLength           = buf.readUInt16BE(offset + 24);
 
     if (buf.length - offset < JT1078_HEADER_LEN + dataLength) return null;
 
@@ -101,11 +94,11 @@ export class JT1078Parser {
       dataType,
       subPacketType,
       payloadType,
-      streamId,
+      streamId: 0,
       sequence,
       timestampMs,
       lastIFrameIntervalMs,
-      lastFrameIntervalMs,
+      lastFrameIntervalMs: 0,
       dataLength,
       data,
     };
@@ -114,7 +107,7 @@ export class JT1078Parser {
   /** Total byte length of this packet (header + payload) */
   static packetLength(buf: Buffer, offset = 0): number {
     if (buf.length - offset < JT1078_HEADER_LEN) return -1;
-    const dataLength = buf.readUInt16BE(offset + 28);
+    const dataLength = buf.readUInt16BE(offset + 24);
     return JT1078_HEADER_LEN + dataLength;
   }
 

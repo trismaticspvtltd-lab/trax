@@ -147,6 +147,34 @@ export class VideoRecordingsService {
     }
   }
 
+  /** Finalise raw G.711A A-law audio recording — saves .alaw directly. */
+  async finalizeRawAlawRecording(imei: string, alawBuffer: Buffer, durationSeconds: number): Promise<void> {
+    const capture = this.pendingCaptures.get(imei);
+    if (!capture) return;
+
+    const s3Key = `recordings/${imei}/alarm_${capture.recordingId}/audio.alaw`;
+    try {
+      await this.repo.update(capture.recordingId, { status: RecordingStatus.PROCESSING });
+      await this.s3.uploadBuffer(s3Key, alawBuffer, 'audio/x-alaw');
+      await this.repo.update(capture.recordingId, {
+        status: RecordingStatus.COMPLETE,
+        s3VideoKey: s3Key,
+        endTime: new Date(),
+        durationSeconds,
+        fileSizeBytes: alawBuffer.length,
+      });
+      this.logger.log(`Audio recording uploaded: ${s3Key} (${alawBuffer.length}b, ${durationSeconds}s)`);
+    } catch (err: any) {
+      await this.repo.update(capture.recordingId, {
+        status: RecordingStatus.FAILED,
+        errorMessage: err.message,
+      });
+      this.logger.error(`Failed to finalize audio recording: ${err.message}`);
+    } finally {
+      this.pendingCaptures.delete(imei);
+    }
+  }
+
   /** Finalise raw H.264 (no ffmpeg) — saves .h264 directly. */
   async finalizeRawH264Recording(imei: string, h264Buffer: Buffer, durationSeconds: number): Promise<void> {
     const capture = this.pendingCaptures.get(imei);
@@ -171,6 +199,37 @@ export class VideoRecordingsService {
     } finally {
       this.pendingCaptures.delete(imei);
     }
+  }
+
+  // ─── Live Recording ─────────────────────────────────────────────────────────
+
+  /** Called by MediaServerService when a live stream starts (no pending alarm). */
+  async startLiveRecording(
+    simNumber: string, deviceId: number, deviceName: string, channel: number,
+  ): Promise<number> {
+    const recording = await this.repo.save(
+      this.repo.create({
+        imei: simNumber,
+        deviceId,
+        deviceName,
+        channel,
+        type: RecordingType.LIVE,
+        status: RecordingStatus.RECORDING,
+        startTime: new Date(),
+        s3ImageKeys: [],
+      }),
+    );
+    this.pendingCaptures.set(simNumber, {
+      recordingId: recording.id,
+      imei: simNumber,
+      alarmType: 'live',
+      startedAt: new Date(),
+      photoCount: 0,
+      targetPhotoCount: 0,
+      recordingStartedAt: new Date(),
+    });
+    this.logger.log(`Live recording created: id=${recording.id} sim=${simNumber} ch=${channel}`);
+    return recording.id;
   }
 
   // ─── Manual Recording ───────────────────────────────────────────────────────

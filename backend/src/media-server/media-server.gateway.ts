@@ -43,6 +43,17 @@ export class MediaServerGateway implements OnGatewayInit {
     });
   }
 
+  /** Emit a G.711A audio frame to all subscribers of this stream. */
+  emitAudioFrame(imei: string, channel: number, audioData: Buffer) {
+    const room = `stream_${imei}_${channel}`;
+    this.server.to(room).emit('audio_frame', {
+      imei,
+      channel,
+      audio: audioData,
+      ts: Date.now(),
+    });
+  }
+
   /** Emit stream lifecycle events (started, stopped, error). */
   emitStreamEvent(imei: string, channel: number, event: string, data?: any) {
     const room = `stream_${imei}_${channel}`;
