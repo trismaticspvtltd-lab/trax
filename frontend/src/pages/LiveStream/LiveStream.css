@@ -486,6 +486,19 @@
   display: block;
 }
 
+/* JMuxer canvas fallback — object-fit doesn't apply to canvas, so
+   center it and let max-width/max-height maintain the aspect ratio */
+.cp-video-area canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  background: #000;
+}
+
 /* Overlays */
 .cp-overlay {
   position: absolute;

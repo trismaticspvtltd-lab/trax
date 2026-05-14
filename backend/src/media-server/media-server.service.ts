@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import * as net from 'net';
 import { spawn, ChildProcess } from 'child_process';
 import { Readable, PassThrough } from 'stream';
-import { JT1078Parser, JT1078Packet, DATA_TYPE, JT1078_HEADER_LEN } from '../tcp-server/jt1078.parser';
+import { JT1078Parser, JT1078Packet, DATA_TYPE, JT1078_HEADER_LEN, SUB_PACKET, PT } from '../tcp-server/jt1078.parser';
 import { JT808Parser, MsgId } from '../tcp-server/jt808.parser';
 import { VideoRecordingsService } from '../video-recordings/video-recordings.service';
 import { MediaServerGateway } from './media-server.gateway';
@@ -24,6 +24,8 @@ interface ActiveMediaSession {
   ffmpegProcess?: ChildProcess;
   ffmpegPipe?: PassThrough;
   mp4Chunks: Buffer[];          // ffmpeg output (MP4 bytes)
+  fragmentBuffer: Buffer;       // reassembly buffer for fragmented JT1078 packets
+  liveTranscoderPipe?: PassThrough;  // H.265→H.264 live transcoder input pipe
 }
 
 @Injectable()
@@ -78,6 +80,7 @@ export class MediaServerService implements OnModuleInit, OnModuleDestroy {
       frameChunks: [],
       totalBytes: 0,
       mp4Chunks: [],
+      fragmentBuffer: Buffer.alloc(0),
     };
 
     socket.on('data', (data) => {
@@ -221,17 +224,51 @@ export class MediaServerService implements OnModuleInit, OnModuleDestroy {
 
     // ── Live relay via WebSocket ──────────────────────────────────────────────
     if (isVideo) {
-      const annexB = JT1078Parser.toAnnexB(packet.data);
-      this.gateway.emitFrame(session.simNumber, session.channel, annexB, isKeyFrame);
+      // Reassemble fragmented JT1078 packets before decoding.
+      // Large H.264 frames are split into FIRST/MIDDLE/LAST sub-packets;
+      // forwarding fragments individually causes corrupted/blurry video.
+      let frameData: Buffer | null = null;
 
-      // Accumulate for recording
-      if (session.recordingId !== undefined) {
-        session.frameChunks.push(annexB);
-        session.totalBytes += annexB.length;
+      switch (packet.subPacketType) {
+        case SUB_PACKET.FIRST:
+          session.fragmentBuffer = Buffer.from(packet.data);
+          break;
+        case SUB_PACKET.MIDDLE:
+          session.fragmentBuffer = Buffer.concat([session.fragmentBuffer, packet.data]);
+          break;
+        case SUB_PACKET.LAST:
+          session.fragmentBuffer = Buffer.concat([session.fragmentBuffer, packet.data]);
+          frameData = session.fragmentBuffer;
+          session.fragmentBuffer = Buffer.alloc(0);
+          break;
+        default:
+          // ATOMIC (0): complete frame — use directly
+          frameData = packet.data;
+      }
 
-        // If we have a live ffmpeg pipe, write to it
-        if (session.ffmpegPipe) {
-          try { session.ffmpegPipe.write(annexB); } catch { /* pipe closed */ }
+      if (frameData !== null) {
+        if (packet.payloadType === PT.H265) {
+          // H.265 stream: start a per-session ffmpeg transcoder (H.265→H.264)
+          // so JMuxer on the client receives H.264 Annex-B
+          if (!session.liveTranscoderPipe) {
+            this.startLiveTranscoder(session, sessionId);
+          }
+          if (session.liveTranscoderPipe) {
+            try { session.liveTranscoderPipe.write(JT1078Parser.toAnnexB(frameData)); } catch { /* ignore */ }
+          }
+        } else {
+          // H.264: convert to Annex-B and forward directly
+          const annexB = JT1078Parser.toAnnexB(frameData);
+          this.gateway.emitFrame(session.simNumber, session.channel, annexB, isKeyFrame);
+
+          // Accumulate for recording
+          if (session.recordingId !== undefined) {
+            session.frameChunks.push(annexB);
+            session.totalBytes += annexB.length;
+            if (session.ffmpegPipe) {
+              try { session.ffmpegPipe.write(annexB); } catch { /* pipe closed */ }
+            }
+          }
         }
       }
     } else if (isAudio && session.ffmpegPipe) {
@@ -287,11 +324,61 @@ export class MediaServerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private startLiveTranscoder(session: ActiveMediaSession, sessionId: string) {
+    this.logger.log(`Starting H.265→H.264 live transcoder for ${session.simNumber} ch${session.channel}`);
+    try {
+      const ffmpeg = spawn('ffmpeg', [
+        '-loglevel', 'error',
+        '-f', 'hevc',
+        '-i', 'pipe:0',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-profile:v', 'baseline',
+        '-level', '3.1',
+        '-f', 'h264',
+        'pipe:1',
+      ]);
+
+      const pipe = new PassThrough();
+      pipe.pipe(ffmpeg.stdin);
+      session.liveTranscoderPipe = pipe;
+
+      ffmpeg.stdout.on('data', (chunk: Buffer) => {
+        this.gateway.emitFrame(session.simNumber, session.channel, chunk, false);
+        if (session.recordingId !== undefined) {
+          session.frameChunks.push(chunk);
+          session.totalBytes += chunk.length;
+          if (session.ffmpegPipe) {
+            try { session.ffmpegPipe.write(chunk); } catch { /* pipe closed */ }
+          }
+        }
+      });
+
+      ffmpeg.on('error', (err) => {
+        this.logger.warn(`Live transcoder error for ${session.simNumber}: ${err.message}`);
+        session.liveTranscoderPipe = undefined;
+      });
+
+      ffmpeg.on('close', () => {
+        session.liveTranscoderPipe = undefined;
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not start H.265 live transcoder for ${sessionId}: ${err.message}`);
+    }
+  }
+
   // ── Finalize Session (on close) ─────────────────────────────────────────────
 
   private finalizeSession(session: ActiveMediaSession) {
     if (session.recordingTimer) {
       clearTimeout(session.recordingTimer);
+    }
+
+    // Clean up live H.265 transcoder if active
+    if (session.liveTranscoderPipe) {
+      try { session.liveTranscoderPipe.end(); } catch { /* ignore */ }
+      session.liveTranscoderPipe = undefined;
     }
 
     if (!session.recordingId) {
